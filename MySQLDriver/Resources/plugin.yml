@@ -1,0 +1,8 @@
+name: MySQLDriver
+main: com.bencodez.mysqldriver.spigot.DriverPluginSpigot
+version: 1.0
+api-version: "1.13"
+author: BenCodez
+description: Bundles JDBC drivers (MySQL/MariaDB/PostgreSQL) for plugins that depend on it.
+load: STARTUP
+

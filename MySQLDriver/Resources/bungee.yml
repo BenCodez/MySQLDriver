@@ -1,0 +1,6 @@
+name: MySQLDriver
+main: com.bencodez.mysqldriver.bungee.DriverPluginBungee
+version: 1.0
+author: BenCodez
+description: Bundles JDBC drivers (MySQL/MariaDB/PostgreSQL) for plugins that depend on it.
+

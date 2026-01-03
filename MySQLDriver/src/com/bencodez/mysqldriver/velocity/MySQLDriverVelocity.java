@@ -1,4 +1,4 @@
-package com.bencodez.mysqldriver;
+package com.bencodez.mysqldriver.velocity;
 
 import java.util.logging.Logger;
 
