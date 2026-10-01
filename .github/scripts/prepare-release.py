@@ -1,4 +1,5 @@
 """Validate the shaded plugin and stage versioned, byte-for-byte release assets."""
+import argparse
 import hashlib
 import json
 import os
@@ -17,12 +18,32 @@ PLUGIN_CLASSES = (
 )
 
 
-def prepare(project, tag=""):
+def project_version(project):
     version = ET.parse(project / "pom.xml").getroot().findtext(
         "{http://maven.apache.org/POM/4.0.0}version"
     )
     if not version or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,2}", version):
         raise ValueError("Use a stable numeric Maven version, such as 1.0 or 1.0.1")
+    return version
+
+
+def select_tag(project, event, ref, requested_version=""):
+    if event == "workflow_dispatch":
+        if ref != "refs/heads/master":
+            raise ValueError("Releases must be dispatched from the master branch")
+        if requested_version != project_version(project):
+            raise ValueError("Release version must match the Maven version, without the v prefix")
+        return f"v{requested_version}"
+    if event == "push" and ref.startswith("refs/tags/"):
+        tag = ref.removeprefix("refs/tags/")
+        if tag != f"v{project_version(project)}":
+            raise ValueError("Release tag must match the Maven version")
+        return tag
+    return ""
+
+
+def prepare(project, tag=""):
+    version = project_version(project)
     if tag and tag != f"v{version}":
         raise ValueError(f"Release tag {tag!r} must match Maven version v{version}")
 
@@ -57,4 +78,13 @@ def prepare(project, tag=""):
 
 
 if __name__ == "__main__":
-    print(prepare(Path("MySQLDriver"), os.environ.get("RELEASE_TAG", "")))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--select-tag", action="store_true", help="Validate the workflow request before building")
+    args = parser.parse_args()
+    if args.select_tag:
+        tag = select_tag(Path("MySQLDriver"), os.environ["RELEASE_EVENT"],
+                         os.environ["RELEASE_REF"], os.environ.get("RELEASE_VERSION", ""))
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"tag={tag}\n")
+    else:
+        print(prepare(Path("MySQLDriver"), os.environ.get("RELEASE_TAG", "")))
