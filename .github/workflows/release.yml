@@ -1,0 +1,74 @@
+name: Build and release
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      artifact-id: ${{ steps.artifact.outputs.artifact-id }}
+      commit: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Test release safeguards
+        run: python3 -m unittest discover -s .github/tests -v
+      - name: Build the shaded plugin
+        run: mvn --batch-mode --no-transfer-progress -f MySQLDriver/pom.xml clean verify
+      - name: Check and stage release assets
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: python3 .github/scripts/prepare-release.py
+      - name: Record the built commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Retain the exact build for the publish job
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: MySQLDriver/target/release/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: release-assets
+          merge-multiple: true
+      - name: Upload all assets to a draft, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        run: bash .github/scripts/publish-release.sh release-assets
