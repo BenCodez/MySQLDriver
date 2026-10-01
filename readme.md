@@ -30,17 +30,41 @@ creation to trusted maintainers using the repository's chosen tag rules.
    (both under `MySQLDriver/`), and the Velocity `@Plugin` annotation in
    `MySQLDriver/src/com/bencodez/mysqldriver/velocity/MySQLDriverVelocity.java`.
 2. Merge the reviewed commit after the **Build and release / build** check passes.
-3. Create and push a new tag `v<version>` pointing to that commit, for example:
-   `git tag -a v1.0 -m "MySQLDriver 1.0" <commit>` then `git push origin v1.0`.
-4. The tag workflow builds and verifies the actual shaded JAR, stages
-   `MySQLDriver-<version>.jar` and `MySQLDriver-<version>.jar.sha256`, and retains
-   that exact pair as a run artifact for 30 days. A separate publishing job checks
-   the remote tag, uploads both files to a draft release, checks the tag again,
-   and only then publishes. PR and `master` builds never publish releases.
+3. On GitHub, open **Actions → Build and release → Run workflow**. Leave the
+   branch set to **master**, enter the same version **without** the `v` prefix
+   (for example, `1.0` for the current version), and click **Run workflow**.
+   The button is available once this workflow is merged into `master`.
+4. The workflow validates the branch and version, builds and verifies the actual
+   shaded JAR, stages `MySQLDriver-<version>.jar` and
+   `MySQLDriver-<version>.jar.sha256`, and retains that exact pair as a run artifact
+   for 30 days. A separate publishing job creates `v<version>` at the exact built
+   commit, uploads both files to a draft release, checks the tag again, and only
+   then publishes. Watch that run finish, then find the assets under **Releases**.
 
-The workflow checks that the Maven version, tag and packaged plugin descriptors
-agree, and that all three plugin entry points, JDBC drivers and service providers
-are present. It grants write permission only to the tag-only publishing job.
+No local Git commands or extra token secret are needed for the web flow. It uses
+`GITHUB_TOKEN`; repository rules must permit that token to create new release
+tags. It never moves an existing tag. An existing lightweight or annotated tag is
+accepted only when it resolves to the exact commit built by this run.
+
+The web flow does not change project versions for you: commit and merge all four
+version updates first. The workflow checks that the Maven version, requested
+version/tag and all packaged plugin descriptors agree, and that all three plugin
+entry points, JDBC drivers and service providers are present. Only manual runs
+from `master` and version-tag pushes can publish; ordinary PR and `master` push
+builds cannot. Write permission is granted only to the publishing job.
+
+### Alternative: push a tag
+
+You can still create and push a new tag pointing to the reviewed commit:
+
+```sh
+git tag -a v1.0 -m "MySQLDriver 1.0" <commit>
+git push origin v1.0
+```
+
+That tag push uses the same build, verification and draft-then-publish flow. Both
+entry points share a per-tag concurrency group. Tags created by `GITHUB_TOKEN`
+do not start another tag-push workflow, so the manual run publishes its own assets.
 
 ### Consumers
 
@@ -57,9 +81,12 @@ sha256sum --check MySQLDriver-1.0.jar.sha256
 ### Failed runs and retries
 
 The workflow never overwrites any existing release, including a draft. If no
-release was created, rerun the failed publishing job to reuse the retained build
-artifact. If creation/upload/publishing failed after making a draft, inspect that
-draft and the run artifact first. A maintainer can finish uploading the exact
+release was created, use **Re-run failed jobs** on the original run to reuse the
+retained build artifact and exact commit, even if `master` has advanced. If the
+tag was already created, the job reuses it only when it still points to that
+commit. Starting a new manual run builds the currently selected `master` commit
+and will reject an existing tag for another commit. If creation/upload/publishing
+failed after making a draft, inspect that draft and the run artifact first. A maintainer can finish uploading the exact
 retained files and publish it, or delete only the incomplete **draft** (keep the
 tag) before rerunning the failed publishing job. Do not publish a partial draft.
 If the release is already published, leave it untouched; a retry deliberately

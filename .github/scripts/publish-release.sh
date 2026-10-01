@@ -18,9 +18,23 @@ if [[ -n "$existing" ]]; then
 fi
 check_tag() {
   local actual
-  actual=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+  actual=$(gh api "repos/$GH_REPO/commits/refs/tags/$RELEASE_TAG" --jq .sha)
   [[ "$actual" == "$RELEASE_COMMIT" ]] || { echo 'Remote tag no longer matches the built commit' >&2; exit 1; }
 }
+if [[ "${CREATE_RELEASE_TAG:-false}" == true ]]; then
+  # Matching refs returns an empty array for a missing tag. Do not treat an API
+  # failure as absence, or confuse a prefix match (v1.0.1) with the exact tag.
+  tag_ref=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$RELEASE_TAG" \
+    --jq ".[] | select(.ref == \"refs/tags/$RELEASE_TAG\") | .ref")
+  if [[ -z "$tag_ref" ]]; then
+    # POST creates only; never force-update an existing tag. If another run won
+    # the race or the response was lost, accept only the same exact commit.
+    if ! gh api --method POST "repos/$GH_REPO/git/refs" \
+      -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_COMMIT" >/dev/null; then
+      check_tag
+    fi
+  fi
+fi
 check_tag
 # --draft keeps even a partially failed upload unpublished. --verify-tag prevents
 # gh from creating a tag on the default branch if the intended tag is missing.
